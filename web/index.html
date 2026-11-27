@@ -70,7 +70,12 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let sessionId = localStorage.getItem("ocSession") || nuevaId();
-function nuevaId() { const id = "s-" + crypto.randomUUID().slice(0, 8); localStorage.setItem("ocSession", id); return id; }
+function nuevaId() {
+  const uid = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10);
+  const id = "s-" + uid;
+  try { localStorage.setItem("ocSession", id); } catch {}
+  return id;
+}
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
 function inline(s) {
