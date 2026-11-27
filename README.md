@@ -2,7 +2,7 @@
 
 Agente que lee el paquete de compra (correo, solicitud, cotización, aprobación y factura), lo valida contra los maestros con las reglas RC1–RC10, construye la OC, genera la evidencia de aprobación y la crea en un SAP simulado. Los bloqueos se devuelven al humano y las excepciones piden confirmación explícita.
 
-**Link de prueba:** _(se completa al desplegar)_
+**Link de prueba:** http://129.38.88.98:3000
 
 ## Requisitos
 
