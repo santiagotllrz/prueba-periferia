@@ -78,7 +78,7 @@ La analista administrativa digita a mano en SAP cada orden de compra y verifica 
 | HU-4 Evidencia | Hecho | P0 txt con sha256 + P1 pdf (pdf-lib). |
 | HU-5 Crear OC | Hecho | Idempotente, numeración desde 4500000001 y `control.csv` en cada intento. |
 | HU-6 Errores | Hecho | `{ ok:false, error }` en todas las herramientas; maneja caso inexistente, JSON malformado y nombres de caso inseguros. |
-| Front | Hecho | Muestra las tool calls (expandibles), el banner de confirmación y el indicador de "pensando". |
+| Front | Hecho | Muestra las tool calls (expandibles), el banner de confirmación y el indicador de "pensando". **Streaming** (opcional en el PRD): `/api/chat/stream` con SSE; el texto aparece mientras se genera y cada herramienta se ve al ejecutarse. |
 | `oc_leer_excel` | No hecho | P1 opcional. |
 | Bonus `modulo/` | Hecho | `agent.md` y `SKILL.md` se generan desde las mismas fuentes (`bun run modulo`); `tools/oc.ts` re-exporta las mismas herramientas. |
 

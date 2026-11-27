@@ -51,6 +51,7 @@ Resultado esperado:
 | Método | Ruta | Cuerpo / respuesta |
 |---|---|---|
 | `POST` | `/api/chat` | `{ sessionId, message }` → `{ reply, toolCalls[], needsConfirmation }` |
+| `POST` | `/api/chat/stream` | Igual que `/api/chat`, pero en streaming (Server-Sent Events): eventos `texto`, `herramienta_inicio`, `herramienta_fin` y `fin`. Es lo que usa el chat. |
 | `GET` | `/api/sessions/:id` | Historial de la sesión |
 | `GET` | `/api/health` | `{ ok, provider, model }` (nunca expone la clave) |
 

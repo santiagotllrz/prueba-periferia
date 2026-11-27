@@ -59,7 +59,12 @@ export class AnthropicAdapter implements LlmAdapter {
     return { type: "opaco", proveedor: this.proveedor, raw: b }
   }
 
-  async enviar(system: string, mensajes: Mensaje[], herramientas: DefinicionHerramienta[]): Promise<RespuestaLlm> {
+  async enviar(
+    system: string,
+    mensajes: Mensaje[],
+    herramientas: DefinicionHerramienta[],
+    onTexto?: (delta: string) => void,
+  ): Promise<RespuestaLlm> {
     const esOauth = tipoCredencial() === "oauth"
     const systemParam: string | Anthropic.TextBlockParam[] = esOauth
       ? [
@@ -68,7 +73,7 @@ export class AnthropicAdapter implements LlmAdapter {
         ]
       : system
 
-    const r = await this.client.messages.create({
+    const params: Anthropic.MessageCreateParamsNonStreaming = {
       model: this.modelo,
       max_tokens: 16000,
       system: systemParam,
@@ -79,7 +84,12 @@ export class AnthropicAdapter implements LlmAdapter {
         input_schema: h.input_schema as Anthropic.Tool.InputSchema,
       })),
       messages: mensajes.map((m) => ({ role: m.role, content: m.content.map((b) => this.aParam(b)) })),
-    })
+    }
+
+    // Con onTexto se usa streaming: el texto llega por partes y al final se obtiene el mensaje completo.
+    const r = onTexto
+      ? await this.client.messages.stream(params).on("text", (delta) => onTexto(delta)).finalMessage()
+      : await this.client.messages.create(params)
     const fin: RespuestaLlm["fin"] =
       r.stop_reason === "end_turn" ? "fin_turno"
       : r.stop_reason === "tool_use" ? "herramientas"

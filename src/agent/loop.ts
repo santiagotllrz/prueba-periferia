@@ -43,6 +43,13 @@ function resumir(resultado: string): { ok: boolean; resumen: string; pideConfirm
   }
 }
 
+/** Eventos que el ciclo emite en vivo para el streaming del front. */
+export type Evento =
+  | { tipo: "texto"; delta: string }
+  | { tipo: "herramienta_inicio"; nombre: string; args: unknown }
+  | { tipo: "herramienta_fin"; llamada: LlamadaVisible }
+  | { tipo: "fin"; reply: string; toolCalls: LlamadaVisible[]; needsConfirmation: boolean }
+
 /** Ciclo del agente: prompt → modelo → herramientas → … → respuesta, con tope de iteraciones (CA1). */
 export async function turno(
   sesion: Sesion,
@@ -50,7 +57,9 @@ export async function turno(
   llm: LlmAdapter,
   cfg: Config,
   errorLegible: (e: unknown) => string,
+  emitir?: (e: Evento) => void,
 ): Promise<{ reply: string; toolCalls: LlamadaVisible[]; needsConfirmation: boolean }> {
+  const onTexto = emitir ? (delta: string) => emitir({ tipo: "texto", delta }) : undefined
   const confirmacionHumana = esConfirmacion(sesion, mensajeUsuario)
   sesion.vista.push({ rol: "usuario", texto: mensajeUsuario })
   sesion.mensajes.push({ role: "user", content: [{ type: "text", text: mensajeUsuario }] })
@@ -65,7 +74,7 @@ export async function turno(
     for (let i = 0; i < cfg.maxIteraciones; i++) {
       let r
       try {
-        r = await llm.enviar(cfg.system, sesion.mensajes, definiciones())
+        r = await llm.enviar(cfg.system, sesion.mensajes, definiciones(), onTexto)
       } catch (e) {
         reply = `⚠️ ${errorLegible(e)}`
         if (i === 0) sesion.mensajes.pop() // se descarta el mensaje para poder reintentar sin romper el historial
@@ -82,10 +91,13 @@ export async function turno(
       }
       const resultados: Bloque[] = []
       for (const u of usos) {
+        emitir?.({ tipo: "herramienta_inicio", nombre: u.name, args: u.input })
         const resultado = await ejecutarHerramienta(u.name, u.input, { directory: cfg.directory, sessionId: sesion.id, confirmacionHumana })
         const s = resumir(resultado)
         pideConfirmacion ||= s.pideConfirmacion
-        toolCalls.push({ nombre: u.name, args: u.input, ok: s.ok, resumen: s.resumen, resultado })
+        const llamada: LlamadaVisible = { nombre: u.name, args: u.input, ok: s.ok, resumen: s.resumen, resultado }
+        toolCalls.push(llamada)
+        emitir?.({ tipo: "herramienta_fin", llamada })
         resultados.push({ type: "tool_result", tool_use_id: u.id, content: resultado, is_error: !s.ok })
       }
       sesion.mensajes.push({ role: "user", content: resultados })
@@ -97,5 +109,6 @@ export async function turno(
   const creada = toolCalls.some((t) => t.nombre === "oc_crear" && t.ok)
   sesion.esperandoConfirmacion = pideConfirmacion && !creada
   sesion.vista.push({ rol: "agente", texto: reply, toolCalls, needsConfirmation: sesion.esperandoConfirmacion })
+  emitir?.({ tipo: "fin", reply, toolCalls, needsConfirmation: sesion.esperandoConfirmacion })
   return { reply, toolCalls, needsConfirmation: sesion.esperandoConfirmacion }
 }

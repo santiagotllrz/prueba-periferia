@@ -22,6 +22,7 @@
   details.tool summary { padding:5px 9px; cursor:pointer; list-style:none; }
   details.tool summary::before { content:"▸ "; color:var(--mut); }
   details.tool[open] summary::before { content:"▾ "; }
+  details.tool.pendiente summary span { color:var(--mut); font-style:italic; }
   .tool code.n { font-weight:600; }
   .tool .ok { color:var(--ok); } .tool .ko { color:var(--err); }
   .tool pre { margin:0; padding:8px 10px; max-height:260px; overflow:auto; font-size:12px; background:#f1f3f5; border-top:1px solid var(--line); white-space:pre-wrap; word-break:break-word; }
@@ -114,14 +115,68 @@ function pintar(rol, texto, toolCalls = [], needsConfirmation = false) {
   d.innerHTML = html; $("chat").appendChild(d); d.scrollIntoView({ behavior: "smooth", block: "end" });
 }
 
+/** Burbuja del agente que se va llenando en vivo mientras llegan los eventos del stream. */
+function burbujaEnVivo() {
+  const d = document.createElement("div");
+  d.className = "msg agente";
+  d.innerHTML = '<div class="tools"></div><div class="md"></div>';
+  $("chat").appendChild(d);
+  let texto = "";
+  const tools = d.querySelector(".tools"), cuerpo = d.querySelector(".md");
+  const bajar = () => d.scrollIntoView({ block: "end" });
+  return {
+    texto(delta) { texto += delta; cuerpo.innerHTML = md(texto); bajar(); },
+    inicioHerramienta(nombre, args) {
+      // El texto previo a una herramienta es narración intermedia: se limpia para la respuesta final.
+      texto = ""; cuerpo.innerHTML = "";
+      const el = document.createElement("details"); el.className = "tool pendiente";
+      el.innerHTML = `<summary><code class="n">${esc(nombre)}</code>(${esc(JSON.stringify(args).slice(0, 80))}) → <span>ejecutando…</span></summary>`;
+      tools.appendChild(el); bajar();
+    },
+    finHerramienta(t) {
+      const el = tools.querySelector("details.pendiente"); if (!el) return;
+      el.classList.remove("pendiente");
+      el.innerHTML = `<summary><code class="n">${esc(t.nombre)}</code>(${esc(JSON.stringify(t.args).slice(0, 80))}) → <span class="${t.ok ? "ok" : "ko"}">${esc(t.resumen)}</span></summary><pre>${esc(pretty(t.resultado))}</pre>`;
+    },
+    fin(data) {
+      d.remove();
+      pintar("agente", data.reply, data.toolCalls, data.needsConfirmation);
+      $("confirmBar").classList.toggle("on", !!data.needsConfirmation);
+    },
+  };
+}
+
+/** Envía con streaming (SSE sobre fetch). Si el stream falla, cae a /api/chat normal. */
 async function enviar(msg) {
   if (!msg.trim()) return;
   pintar("usuario", msg); $("t").value = ""; $("b").disabled = true; $("pensando").style.display = "block"; $("confirmBar").classList.remove("on");
+  const cuerpo = JSON.stringify({ sessionId, message: msg });
   try {
-    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, message: msg }) });
-    const data = await r.json();
-    if (!r.ok) pintar("agente", "⚠️ " + (data.error || "Error"));
-    else { pintar("agente", data.reply, data.toolCalls, data.needsConfirmation); $("confirmBar").classList.toggle("on", !!data.needsConfirmation); }
+    const r = await fetch("/api/chat/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: cuerpo });
+    if (!r.ok || !r.body) {
+      const data = await r.json().catch(() => ({}));
+      pintar("agente", "⚠️ " + (data.error || "Error"));
+    } else {
+      const vivo = burbujaEnVivo();
+      const lector = r.body.getReader(), dec = new TextDecoder();
+      let buf = "", terminado = false;
+      while (!terminado) {
+        const { value, done } = await lector.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n\n")) >= 0) {
+          const linea = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
+          if (!linea.startsWith("data:")) continue;
+          const ev = JSON.parse(linea.slice(5));
+          if (ev.tipo === "texto") vivo.texto(ev.delta);
+          else if (ev.tipo === "herramienta_inicio") vivo.inicioHerramienta(ev.nombre, ev.args);
+          else if (ev.tipo === "herramienta_fin") vivo.finHerramienta(ev.llamada);
+          else if (ev.tipo === "fin") { vivo.fin(ev); terminado = true; }
+        }
+      }
+      if (!terminado) pintar("agente", "⚠️ La conexión se cortó antes de terminar. Revisa el historial o intenta de nuevo.");
+    }
   } catch { pintar("agente", "⚠️ No hay conexión con el servidor. Intenta de nuevo."); }
   $("b").disabled = false; $("pensando").style.display = "none"; $("t").focus();
 }

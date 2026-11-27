@@ -19,5 +19,11 @@ export type RespuestaLlm = {
 export interface LlmAdapter {
   readonly proveedor: string
   readonly modelo: string
-  enviar(system: string, mensajes: Mensaje[], herramientas: DefinicionHerramienta[]): Promise<RespuestaLlm>
+  /** Si se pasa `onTexto`, la implementación transmite el texto en vivo (streaming) mientras se genera. */
+  enviar(
+    system: string,
+    mensajes: Mensaje[],
+    herramientas: DefinicionHerramienta[],
+    onTexto?: (delta: string) => void,
+  ): Promise<RespuestaLlm>
 }

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { turno, type Sesion } from "./agent/loop"
+import { turno, type Evento, type Sesion } from "./agent/loop"
 import { AnthropicAdapter, errorLlmLegible, tipoCredencial } from "./llm/anthropic"
 import type { LlmAdapter } from "./llm/adapter"
 
@@ -35,6 +35,19 @@ function sesion(id: string): Sesion {
 
 const json = (data: unknown, status = 200) => Response.json(data, { status })
 
+/** Valida el cuerpo { sessionId, message } común a /api/chat y /api/chat/stream. */
+async function leerEntrada(req: Request): Promise<{ sessionId: string; message: string } | { error: string }> {
+  let body: { sessionId?: unknown; message?: unknown }
+  try {
+    body = (await req.json()) as typeof body
+  } catch {
+    return { error: "Cuerpo JSON inválido" }
+  }
+  if (typeof body.sessionId !== "string" || !/^[\w-]{1,64}$/.test(body.sessionId)) return { error: "sessionId inválido" }
+  if (typeof body.message !== "string" || !body.message.trim()) return { error: "message vacío" }
+  return { sessionId: body.sessionId, message: body.message.slice(0, MAX_MENSAJE) }
+}
+
 const server = Bun.serve({
   port: Number(env("PORT", "3000")),
   idleTimeout: 255,
@@ -47,17 +60,38 @@ const server = Bun.serve({
     },
     "/api/chat": {
       POST: async (req) => {
-        let body: { sessionId?: unknown; message?: unknown }
-        try {
-          body = (await req.json()) as typeof body
-        } catch {
-          return json({ error: "Cuerpo JSON inválido" }, 400)
-        }
-        if (typeof body.sessionId !== "string" || !/^[\w-]{1,64}$/.test(body.sessionId)) return json({ error: "sessionId inválido" }, 400)
-        if (typeof body.message !== "string" || !body.message.trim()) return json({ error: "message vacío" }, 400)
-        const s = sesion(body.sessionId)
-        const r = await turno(s, body.message.slice(0, MAX_MENSAJE), llm, { ...cfgBase, system: systemPrompt() }, errorLlmLegible)
+        const e = await leerEntrada(req)
+        if ("error" in e) return json({ error: e.error }, 400)
+        const r = await turno(sesion(e.sessionId), e.message, llm, { ...cfgBase, system: systemPrompt() }, errorLlmLegible)
         return json(r)
+      },
+    },
+    /** Misma API que /api/chat pero transmite eventos en vivo (Server-Sent Events): texto, herramientas y fin. */
+    "/api/chat/stream": {
+      POST: async (req) => {
+        const e = await leerEntrada(req)
+        if ("error" in e) return json({ error: e.error }, 400)
+        const enc = new TextEncoder()
+        const stream = new ReadableStream<Uint8Array>({
+          async start(ctrl) {
+            const enviar = (ev: Evento) => {
+              try {
+                ctrl.enqueue(enc.encode(`data: ${JSON.stringify(ev)}\n\n`))
+              } catch {
+                /* el cliente cerró la conexión; el turno termina igual */
+              }
+            }
+            try {
+              await turno(sesion(e.sessionId), e.message, llm, { ...cfgBase, system: systemPrompt() }, errorLlmLegible, enviar)
+            } catch {
+              enviar({ tipo: "fin", reply: "⚠️ Error interno al procesar el mensaje.", toolCalls: [], needsConfirmation: false })
+            }
+            ctrl.close()
+          },
+        })
+        return new Response(stream, {
+          headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache", Connection: "keep-alive" },
+        })
       },
     },
   },
