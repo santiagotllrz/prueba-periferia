@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { turno, type Sesion } from "./agent/loop"
-import { AnthropicAdapter, errorLlmLegible } from "./llm/anthropic"
+import { AnthropicAdapter, errorLlmLegible, tipoCredencial } from "./llm/anthropic"
 import type { LlmAdapter } from "./llm/adapter"
 
 const root = join(import.meta.dir, "..")
@@ -40,7 +40,7 @@ const server = Bun.serve({
   idleTimeout: 255,
   routes: {
     "/": () => new Response(Bun.file(join(root, "web", "index.html"))),
-    "/api/health": () => json({ ok: true, provider: llm.proveedor, model: llm.modelo, llm_configurado: !!process.env.ANTHROPIC_API_KEY }),
+    "/api/health": () => json({ ok: true, provider: llm.proveedor, model: llm.modelo, credencial: tipoCredencial(), llm_configurado: tipoCredencial() !== "ninguna" }),
     "/api/sessions/:id": (req) => {
       const s = sesiones.get(req.params.id)
       return s ? json({ id: s.id, historial: s.vista, esperandoConfirmacion: s.esperandoConfirmacion, tokensUsados: s.tokensUsados }) : json({ error: "Sesión no encontrada" }, 404)
