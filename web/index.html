@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agente OC SAP · Periferia</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2330; --mut:#6b7280; --line:#e5e7eb; --brand:#0f5132; --warn:#b45309; --warnbg:#fff7ed; --err:#b91c1c; --ok:#15803d; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); height:100vh; display:flex; flex-direction:column; }
+  header { background:var(--brand); color:#fff; padding:12px 20px; display:flex; align-items:center; gap:16px; }
+  header h1 { font-size:17px; margin:0; font-weight:600; }
+  header .meta { font-size:12px; opacity:.8; margin-left:auto; }
+  header button { background:transparent; border:1px solid #ffffff80; color:#fff; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  #chat { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:14px; max-width:980px; width:100%; margin:0 auto; }
+  .msg { padding:12px 16px; border-radius:10px; background:var(--card); border:1px solid var(--line); max-width:100%; overflow-x:auto; }
+  .usuario { align-self:flex-end; background:#e8f3ee; border-color:#cfe5da; max-width:75%; }
+  .confirmar { border:2px solid var(--warn); background:var(--warnbg); }
+  .badge { display:inline-block; font-size:12px; font-weight:600; color:var(--warn); margin-bottom:6px; }
+  .tools { margin:0 0 10px; display:flex; flex-direction:column; gap:4px; }
+  details.tool { font-size:13px; border:1px solid var(--line); border-radius:6px; background:#fafafa; }
+  details.tool summary { padding:5px 9px; cursor:pointer; list-style:none; }
+  details.tool summary::before { content:"▸ "; color:var(--mut); }
+  details.tool[open] summary::before { content:"▾ "; }
+  .tool code.n { font-weight:600; }
+  .tool .ok { color:var(--ok); } .tool .ko { color:var(--err); }
+  .tool pre { margin:0; padding:8px 10px; max-height:260px; overflow:auto; font-size:12px; background:#f1f3f5; border-top:1px solid var(--line); white-space:pre-wrap; word-break:break-word; }
+  table { border-collapse:collapse; margin:8px 0; font-size:14px; }
+  th, td { border:1px solid var(--line); padding:4px 8px; text-align:left; }
+  th { background:#f3f4f6; }
+  .md p { margin:6px 0; } .md h1,.md h2,.md h3 { font-size:15px; margin:10px 0 4px; }
+  .md code { background:#f1f3f5; padding:1px 4px; border-radius:4px; font-size:13px; }
+  #pensando { color:var(--mut); font-style:italic; display:none; padding:0 20px 8px; max-width:980px; margin:0 auto; width:100%; }
+  form { display:flex; gap:8px; padding:12px 20px 18px; max-width:980px; width:100%; margin:0 auto; }
+  textarea { flex:1; resize:none; height:52px; padding:10px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  form button { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:0 18px; font-weight:600; cursor:pointer; }
+  form button:disabled { opacity:.5; cursor:default; }
+  .sugerencias { display:flex; flex-wrap:wrap; gap:6px; max-width:980px; width:100%; margin:0 auto; padding:0 20px; }
+  .sugerencias button { font-size:12px; border:1px solid var(--line); background:#fff; border-radius:999px; padding:4px 10px; cursor:pointer; }
+  .confirm-bar { display:none; gap:8px; max-width:980px; width:100%; margin:0 auto; padding:0 20px 6px; }
+  .confirm-bar.on { display:flex; }
+  .confirm-bar button { border-radius:6px; padding:6px 12px; cursor:pointer; font-weight:600; }
+  .si { background:var(--warn); color:#fff; border:0; } .no { background:#fff; border:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agente · Órdenes de Compra SAP</h1>
+  <span class="meta" id="meta">…</span>
+  <button id="nueva" title="Iniciar una sesión nueva">Nueva sesión</button>
+</header>
+<div id="chat"></div>
+<div id="pensando">El agente está pensando…</div>
+<div class="confirm-bar" id="confirmBar">
+  <button class="si" data-msg="Confirmo, crea la OC.">✔ Confirmo, crear OC</button>
+  <button class="no" data-msg="No, no la crees todavía.">✖ No crear</button>
+</div>
+<div class="sugerencias" id="sug">
+  <button>Procesa la solicitud "sol-001" y crea la OC.</button>
+  <button>Procesa la solicitud "sol-002".</button>
+  <button>Procesa la solicitud "sol-003".</button>
+  <button>Procesa la solicitud "sol-004". Muéstrame la OC como quedaría en SAP, qué validaciones pasó y cuáles no, y no la crees hasta que yo lo confirme.</button>
+  <button>Procesa la solicitud "sol-005".</button>
+  <button>Procesa la solicitud "sol-006".</button>
+</div>
+<form id="f">
+  <textarea id="t" placeholder='Ej: procesa la solicitud "sol-004"' autofocus></textarea>
+  <button id="b">Enviar</button>
+</form>
+<script>
+const $ = (id) => document.getElementById(id);
+let sessionId = localStorage.getItem("ocSession") || nuevaId();
+function nuevaId() { const id = "s-" + crypto.randomUUID().slice(0, 8); localStorage.setItem("ocSession", id); return id; }
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+function inline(s) {
+  return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<i>$2</i>").replace(/_([^_\n]+)_/g, "<i>$1</i>");
+}
+function md(src) {
+  const lines = String(src).split("\n"); let html = "", i = 0;
+  while (i < lines.length) {
+    const l = lines[i];
+    if (/^\s*\|/.test(l) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])) {
+      const row = (x) => x.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      html += "<table><tr>" + row(l).map((c) => "<th>" + inline(c) + "</th>").join("") + "</tr>"; i += 2;
+      while (i < lines.length && /^\s*\|/.test(lines[i])) { html += "<tr>" + row(lines[i]).map((c) => "<td>" + inline(c) + "</td>").join("") + "</tr>"; i++; }
+      html += "</table>"; continue;
+    }
+    const h = l.match(/^(#{1,4})\s+(.*)/); if (h) { html += "<h3>" + inline(h[2]) + "</h3>"; i++; continue; }
+    if (/^\s*([-*]|\d+\.)\s+/.test(l)) {
+      html += "<ul>"; while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) { html += "<li>" + inline(lines[i].replace(/^\s*([-*]|\d+\.)\s+/, "")) + "</li>"; i++; }
+      html += "</ul>"; continue;
+    }
+    if (l.trim()) html += "<p>" + inline(l) + "</p>"; i++;
+  }
+  return html;
+}
+function pretty(s) { try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; } }
+
+function pintar(rol, texto, toolCalls = [], needsConfirmation = false) {
+  const d = document.createElement("div");
+  d.className = "msg " + rol + (needsConfirmation ? " confirmar" : "");
+  let html = needsConfirmation ? '<div class="badge">⚠ El agente necesita tu confirmación</div>' : "";
+  if (toolCalls.length) {
+    html += '<div class="tools">' + toolCalls.map((t) =>
+      `<details class="tool"><summary><code class="n">${esc(t.nombre)}</code>(${esc(JSON.stringify(t.args).slice(0, 80))}) → <span class="${t.ok ? "ok" : "ko"}">${esc(t.resumen)}</span></summary><pre>${esc(pretty(t.resultado))}</pre></details>`).join("") + "</div>";
+  }
+  html += rol === "usuario" ? "<p>" + esc(texto) + "</p>" : '<div class="md">' + md(texto) + "</div>";
+  d.innerHTML = html; $("chat").appendChild(d); d.scrollIntoView({ behavior: "smooth", block: "end" });
+}
+
+async function enviar(msg) {
+  if (!msg.trim()) return;
+  pintar("usuario", msg); $("t").value = ""; $("b").disabled = true; $("pensando").style.display = "block"; $("confirmBar").classList.remove("on");
+  try {
+    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, message: msg }) });
+    const data = await r.json();
+    if (!r.ok) pintar("agente", "⚠️ " + (data.error || "Error"));
+    else { pintar("agente", data.reply, data.toolCalls, data.needsConfirmation); $("confirmBar").classList.toggle("on", !!data.needsConfirmation); }
+  } catch { pintar("agente", "⚠️ No hay conexión con el servidor. Intenta de nuevo."); }
+  $("b").disabled = false; $("pensando").style.display = "none"; $("t").focus();
+}
+
+$("f").addEventListener("submit", (e) => { e.preventDefault(); enviar($("t").value); });
+$("t").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar($("t").value); } });
+$("sug").addEventListener("click", (e) => { if (e.target.tagName === "BUTTON") enviar(e.target.textContent); });
+$("confirmBar").addEventListener("click", (e) => { if (e.target.dataset.msg) enviar(e.target.dataset.msg); });
+$("nueva").addEventListener("click", () => { sessionId = nuevaId(); $("chat").innerHTML = ""; $("confirmBar").classList.remove("on"); });
+
+fetch("/api/health").then((r) => r.json()).then((h) => { $("meta").textContent = `${h.provider} · ${h.model}` + (h.llm_configurado ? "" : " · ⚠ sin clave"); });
+fetch("/api/sessions/" + sessionId).then((r) => r.ok ? r.json() : null).then((s) => {
+  if (!s) return; s.historial.forEach((m) => pintar(m.rol, m.texto, m.toolCalls || [], m.needsConfirmation));
+  $("confirmBar").classList.toggle("on", !!s.esperandoConfirmacion);
+});
+</script>
+</body>
+</html>
