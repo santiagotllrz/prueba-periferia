@@ -43,7 +43,7 @@ sudo systemctl restart agente-oc
 if command -v firewall-cmd >/dev/null; then
   sudo firewall-cmd --permanent --add-port="$PORT"/tcp && sudo firewall-cmd --reload
 elif command -v iptables >/dev/null; then
-  sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport "$PORT" -j ACCEPT || true
+  sudo iptables -C INPUT -p tcp --dport "$PORT" -j ACCEPT 2>/dev/null || sudo iptables -I INPUT 1 -p tcp --dport "$PORT" -j ACCEPT
   sudo netfilter-persistent save 2>/dev/null || true
 fi
 
